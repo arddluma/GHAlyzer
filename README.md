@@ -21,6 +21,52 @@
 - **Analytics** — avg / p95 / max duration, failure rate, daily trend
 - **Insights** — human-readable callouts (bottlenecks, regressions, flaky workflows)
 - **Dashboard** — Next.js + Tailwind + Recharts
+- **Verifiable builds** — every production deploy is signed with a [SLSA build provenance attestation](https://slsa.dev/provenance/) you can independently verify
+
+## Verify the live build
+
+Every commit pushed to `main` produces a signed [SLSA v1 build provenance attestation](https://docs.github.com/actions/security-for-github-actions/using-artifact-attestations/using-artifact-attestations-to-establish-provenance-for-builds) that cryptographically binds the built artifact to this repository and commit. You can verify that [ghalyzer.app](https://ghalyzer.app) is serving exactly what's in this repo — no trust in me required.
+
+### 1. Check what the live site is running
+
+```bash
+curl -s https://ghalyzer.app/api/version
+# {
+#   "sha": "abc123…",
+#   "repo": "arddluma/GHAlyzer",
+#   "built_at": null
+# }
+```
+
+The footer of every page shows the same commit SHA, linked to GitHub.
+
+### 2. Verify the attestation
+
+Install the [GitHub CLI](https://cli.github.com/), then:
+
+```bash
+# Grab the artifact + attestation for the SHA from step 1
+gh run download --repo arddluma/GHAlyzer --name ghalyzer-<sha>
+
+# Verify it was built by this repo's workflow
+gh attestation verify ghalyzer-<sha>.tar.gz \
+  --repo arddluma/GHAlyzer \
+  --source-ref refs/heads/main
+```
+
+A successful verification looks like:
+
+```
+✓ Verification succeeded!
+  - Subject:       ghalyzer-<sha>.tar.gz
+  - Predicate:     https://slsa.dev/provenance/v1
+  - Source repo:   https://github.com/arddluma/GHAlyzer
+  - Source commit: <sha>
+  - Workflow:      .github/workflows/deploy.yml@refs/heads/main
+  - Signer:        github-actions
+```
+
+If the site's `/api/version` SHA matches the artifact SHA you just verified, the live deploy was built from the public source code in this repo, by the workflow defined in `.github/workflows/deploy.yml`, and not tampered with. See [all attestations →](https://github.com/arddluma/GHAlyzer/attestations).
 
 ## Quick start
 
