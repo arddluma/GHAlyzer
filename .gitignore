@@ -1,0 +1,12 @@
+node_modules
+.next
+.env
+.env.local
+*.db
+*.db-journal
+dist
+build
+.DS_Store
+.open-next
+.wrangler
+.yarn

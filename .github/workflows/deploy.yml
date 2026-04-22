@@ -1,0 +1,64 @@
+name: Build, attest, and deploy
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  id-token: write        # required for Sigstore OIDC signing
+  attestations: write    # required to publish the attestation
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    env:
+      NEXT_PUBLIC_SITE_URL: ${{ vars.NEXT_PUBLIC_SITE_URL }}
+      NEXT_PUBLIC_DATABUDDY_CLIENT_ID: ${{ vars.NEXT_PUBLIC_DATABUDDY_CLIENT_ID }}
+      NEXT_PUBLIC_BUILD_SHA: ${{ github.sha }}
+
+    steps:
+      - uses: actions/checkout@v6
+      - name: Enable Corepack
+        run: corepack enable
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: yarn
+
+      - name: Install dependencies
+        run: yarn install --immutable
+
+      - name: Build (OpenNext for Cloudflare)
+        run: yarn run cf:build
+
+      - name: Package artifact for attestation
+        id: pack
+        run: |
+          mkdir -p dist
+          tar --sort=name --owner=0 --group=0 --numeric-owner \
+              --mtime='UTC 2020-01-01' \
+              -czf dist/ghalyzer-${{ github.sha }}.tar.gz \
+              -C .open-next .
+          echo "artifact=dist/ghalyzer-${{ github.sha }}.tar.gz" >> "$GITHUB_OUTPUT"
+
+      - name: Generate SLSA build provenance attestation
+        id: attest
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: ${{ steps.pack.outputs.artifact }}
+
+      - name: Upload artifact + attestation to release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: ghalyzer-${{ github.sha }}
+          path: |
+            ${{ steps.pack.outputs.artifact }}
+            ${{ steps.attest.outputs.bundle-path }}
