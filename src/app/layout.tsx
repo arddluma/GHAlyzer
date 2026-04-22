@@ -1,6 +1,7 @@
 import "./globals.css";
 import type { Metadata, Viewport } from "next";
 import Script from "next/script";
+import Footer from "@/components/Footer";
 
 const siteUrl =
   process.env.NEXT_PUBLIC_SITE_URL?.replace(/\/$/, "") ||
@@ -104,6 +105,7 @@ export default function RootLayout({
     <html lang="en" suppressHydrationWarning>
       <body className="bg-slate-950 text-slate-100 min-h-screen antialiased">
         {children}
+        <Footer />
         {databuddyClientId && (
           <Script
             src="https://cdn.databuddy.cc/databuddy.js"
