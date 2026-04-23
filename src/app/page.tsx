@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Download, ExternalLink, Filter, Github, Info, Loader2, Lock, LogOut, Play, RefreshCw, Search, Unlock, X } from "lucide-react";
+import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, Download, ExternalLink, Filter, Github, Info, Loader2, Lock, LogOut, Play, Plug, RefreshCw, Search, Terminal, Unlock, X } from "lucide-react";
 import {
   LineChart,
   Line,
@@ -512,7 +512,377 @@ export default function Home() {
           Enter a GitHub owner/org above to analyze CI pipeline performance across their repos.
         </div>
       )}
+
+      <McpSetup />
     </main>
+  );
+}
+
+const MCP_URL = "https://ghalyzer.app/api/mcp";
+
+type McpClient =
+  | "claude-ai"
+  | "claude-desktop"
+  | "claude-code"
+  | "chatgpt"
+  | "cursor"
+  | "windsurf";
+
+const MCP_TABS: { id: McpClient; label: string }[] = [
+  { id: "claude-ai", label: "Claude.ai" },
+  { id: "claude-desktop", label: "Claude Desktop" },
+  { id: "claude-code", label: "Claude Code" },
+  { id: "chatgpt", label: "ChatGPT" },
+  { id: "cursor", label: "Cursor" },
+  { id: "windsurf", label: "Windsurf" },
+];
+
+function CopyBox({ text, mono = true }: { text: string; mono?: boolean }) {
+  const [copied, setCopied] = useState(false);
+  return (
+    <div className="relative group">
+      <pre
+        className={`bg-slate-950 border border-slate-800 rounded-lg p-3 pr-20 text-xs sm:text-sm overflow-x-auto text-emerald-300 ${
+          mono ? "font-mono" : ""
+        }`}
+      >
+        {text}
+      </pre>
+      <button
+        onClick={() => {
+          navigator.clipboard.writeText(text);
+          setCopied(true);
+          setTimeout(() => setCopied(false), 1500);
+        }}
+        className="absolute top-2 right-2 inline-flex items-center gap-1 text-xs bg-slate-800 hover:bg-slate-700 border border-slate-700 text-slate-200 px-2 py-1 rounded"
+      >
+        {copied ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+        {copied ? "Copied" : "Copy"}
+      </button>
+    </div>
+  );
+}
+
+function McpSetup() {
+  const [tab, setTab] = useState<McpClient>("claude-ai");
+  const jsonConfig = `{
+  "mcpServers": {
+    "ghalyzer": {
+      "type": "url",
+      "url": "${MCP_URL}"
+    }
+  }
+}`;
+
+  return (
+    <section className="mt-10 bg-slate-900 border border-slate-800 rounded-xl p-5 sm:p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <Plug className="w-5 h-5 text-yellow-400" />
+        <h2 className="font-semibold text-lg">Use GHAlyzer from your AI agent</h2>
+      </div>
+      <p className="text-sm text-slate-400 mb-4">
+        GHAlyzer is an{" "}
+        <a
+          href="https://modelcontextprotocol.io"
+          target="_blank"
+          rel="noreferrer"
+          className="text-yellow-400 hover:underline"
+        >
+          MCP server
+        </a>
+        . Connect it once and ask your AI things like{" "}
+        <em className="text-slate-300">
+          &ldquo;which workflows in vercel/next.js have the worst failure rate this
+          month?&rdquo;
+        </em>{" "}
+        — no login, public repos only.
+      </p>
+
+      <div className="flex flex-wrap gap-2 mb-4">
+        {MCP_TABS.map((t) => (
+          <button
+            key={t.id}
+            onClick={() => setTab(t.id)}
+            className={`text-xs sm:text-sm px-3 py-1.5 rounded-md border transition ${
+              tab === t.id
+                ? "bg-yellow-400 text-slate-950 border-yellow-400 font-semibold"
+                : "bg-slate-950 text-slate-300 border-slate-800 hover:border-slate-700"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="space-y-3 text-sm text-slate-300">
+        {tab === "claude-ai" && (
+          <>
+            <p>Connect from the Claude website:</p>
+            <ol className="list-decimal list-inside space-y-1 text-slate-300 marker:text-yellow-400">
+              <li>
+                Go to{" "}
+                <a
+                  href="https://claude.ai"
+                  target="_blank"
+                  rel="noreferrer"
+                  className="text-yellow-400 hover:underline"
+                >
+                  claude.ai
+                </a>{" "}
+                and open <b>Settings</b> (bottom-left gear icon)
+              </li>
+              <li>
+                Click <b>Connectors</b> in the left sidebar
+              </li>
+              <li>
+                Click <b>Add custom connector</b>
+              </li>
+              <li>
+                Paste the MCP URL below and click <b>Add</b>
+              </li>
+            </ol>
+            <CopyBox text={MCP_URL} />
+          </>
+        )}
+
+        {tab === "claude-desktop" && (
+          <>
+            <p className="font-semibold text-slate-200">Option A — Settings UI</p>
+            <ol className="list-decimal list-inside space-y-1 marker:text-yellow-400">
+              <li>
+                Open Claude Desktop → <b>Settings</b> (⌘, on Mac)
+              </li>
+              <li>
+                Click <b>Connectors</b> in the sidebar
+              </li>
+              <li>
+                Click <b>Add custom connector</b>
+              </li>
+              <li>
+                Paste the URL below and click <b>Add</b>
+              </li>
+            </ol>
+            <CopyBox text={MCP_URL} />
+
+            <div className="flex items-center gap-3 my-2">
+              <div className="flex-1 h-px bg-slate-800" />
+              <span className="text-xs text-slate-500 uppercase">or</span>
+              <div className="flex-1 h-px bg-slate-800" />
+            </div>
+
+            <p className="font-semibold text-slate-200">Option B — Config file</p>
+            <p className="text-slate-400 text-xs">
+              Add to{" "}
+              <code className="text-slate-300 bg-slate-950 px-1 py-0.5 rounded">
+                ~/Library/Application Support/Claude/claude_desktop_config.json
+              </code>{" "}
+              (macOS) or{" "}
+              <code className="text-slate-300 bg-slate-950 px-1 py-0.5 rounded">
+                %APPDATA%\Claude\claude_desktop_config.json
+              </code>{" "}
+              (Windows):
+            </p>
+            <CopyBox text={jsonConfig} />
+          </>
+        )}
+
+        {tab === "claude-code" && (
+          <>
+            <p>Run in your terminal:</p>
+            <CopyBox
+              text={`claude mcp add ghalyzer --transport http ${MCP_URL}`}
+            />
+            <div className="flex items-start gap-2 text-xs text-slate-400 bg-slate-950 border border-slate-800 rounded-lg p-3">
+              <Terminal className="w-4 h-4 mt-0.5 text-slate-500" />
+              <span>
+                No authentication required. GHAlyzer analyzes public GitHub
+                Actions data only.
+              </span>
+            </div>
+          </>
+        )}
+
+        {tab === "chatgpt" && (
+          <>
+            <p>
+              In ChatGPT, go to <b>Settings → Connectors → Add</b> and paste:
+            </p>
+            <CopyBox text={MCP_URL} />
+            {/* <div className="flex items-start gap-2 text-xs text-amber-300/90 bg-amber-950/30 border border-amber-900/40 rounded-lg p-3">
+              <Info className="w-4 h-4 mt-0.5 flex-shrink-0" />
+              <span>
+                Custom MCP connectors require ChatGPT Pro, Business, or Enterprise
+                with developer mode enabled.
+              </span>
+            </div> */}
+          </>
+        )}
+
+        {tab === "cursor" && (
+          <>
+            <p>
+              Add to your{" "}
+              <code className="text-slate-300 bg-slate-950 px-1 py-0.5 rounded">
+                .cursor/mcp.json
+              </code>{" "}
+              (project) or{" "}
+              <code className="text-slate-300 bg-slate-950 px-1 py-0.5 rounded">
+                ~/.cursor/mcp.json
+              </code>{" "}
+              (global):
+            </p>
+            <CopyBox text={jsonConfig} />
+          </>
+        )}
+
+        {tab === "windsurf" && (
+          <>
+            <p>
+              Open Windsurf → <b>Settings → Cascade → MCP servers</b> and click{" "}
+              <b>Add server</b>, or edit{" "}
+              <code className="text-slate-300 bg-slate-950 px-1 py-0.5 rounded">
+                ~/.codeium/windsurf/mcp_config.json
+              </code>
+              :
+            </p>
+            <CopyBox text={jsonConfig} />
+          </>
+        )}
+      </div>
+
+      <McpTools />
+    </section>
+  );
+}
+
+const MCP_TOOLS: {
+  name: string;
+  title: string;
+  description: string;
+  args: { name: string; type: string; required?: boolean; note?: string }[];
+}[] = [
+  {
+    name: "list_public_repos",
+    title: "List public repos for an owner",
+    description:
+      "Lists public, non-archived repositories owned by a GitHub user or organization. Use this before scan_public_workflows to discover repo names.",
+    args: [{ name: "owner", type: "string", required: true }],
+  },
+  {
+    name: "scan_public_workflows",
+    title: "Scan GitHub Actions workflows",
+    description:
+      "Per-workflow stats (avg / p95 / max duration, failure rate), daily trend, and human-readable insights about slow or flaky pipelines. Capped at 10 repos and 20 runs per repo per call.",
+    args: [
+      { name: "owner", type: "string", required: true },
+      { name: "days", type: "integer", note: "1–90, default 14" },
+      { name: "repos", type: "string[]", note: "optional filter" },
+    ],
+  },
+  {
+    name: "get_public_insights",
+    title: "Get CI health insights only",
+    description:
+      "Cheaper variant of scan_public_workflows that returns only the list of insights (slow / flaky / regressing workflows). Use this when you just want the narrative.",
+    args: [
+      { name: "owner", type: "string", required: true },
+      { name: "days", type: "integer", note: "1–90, default 14" },
+    ],
+  },
+];
+
+function McpTools() {
+  const [open, setOpen] = useState(false);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  return (
+    <div className="mt-6 pt-4 border-t border-slate-800">
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full flex items-center justify-between text-left group"
+      >
+        <span className="text-xs uppercase tracking-wide text-slate-400 group-hover:text-slate-200 inline-flex items-center gap-2">
+          <ChevronRight
+            className={`w-3.5 h-3.5 transition-transform ${
+              open ? "rotate-90" : ""
+            }`}
+          />
+          Available tools
+          <span className="text-slate-600 normal-case tracking-normal">
+            ({MCP_TOOLS.length})
+          </span>
+        </span>
+        <a
+          href="/api/mcp"
+          target="_blank"
+          rel="noreferrer"
+          onClick={(e) => e.stopPropagation()}
+          className="text-xs text-slate-500 hover:text-yellow-400 inline-flex items-center gap-1"
+        >
+          manifest <ExternalLink className="w-3 h-3" />
+        </a>
+      </button>
+
+      {open && (
+        <ul className="mt-3 space-y-1">
+          {MCP_TOOLS.map((t) => {
+            const isOpen = expanded === t.name;
+            return (
+              <li
+                key={t.name}
+                className="bg-slate-950 border border-slate-800 rounded-md"
+              >
+                <button
+                  onClick={() => setExpanded(isOpen ? null : t.name)}
+                  className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-slate-900/60"
+                >
+                  <ChevronRight
+                    className={`w-3.5 h-3.5 text-slate-500 transition-transform ${
+                      isOpen ? "rotate-90" : ""
+                    }`}
+                  />
+                  <code className="text-yellow-400 text-xs font-mono">
+                    {t.name}
+                  </code>
+                  <span className="text-xs text-slate-500 truncate">
+                    — {t.title}
+                  </span>
+                </button>
+                {isOpen && (
+                  <div className="px-3 pb-3 pt-1 border-t border-slate-800 text-xs text-slate-300 space-y-2">
+                    <p className="leading-relaxed">{t.description}</p>
+                    <div>
+                      <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1">
+                        Arguments
+                      </div>
+                      <ul className="space-y-0.5">
+                        {t.args.map((a) => (
+                          <li
+                            key={a.name}
+                            className="font-mono text-slate-400"
+                          >
+                            <span className="text-slate-200">{a.name}</span>
+                            <span className="text-slate-500">: {a.type}</span>
+                            {a.required && (
+                              <span className="ml-1 text-amber-400">*</span>
+                            )}
+                            {a.note && (
+                              <span className="text-slate-500 font-sans">
+                                {" "}
+                                — {a.note}
+                              </span>
+                            )}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
   );
 }
 

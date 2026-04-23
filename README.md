@@ -22,6 +22,39 @@
 - **Insights** — human-readable callouts (bottlenecks, regressions, flaky workflows)
 - **Dashboard** — Next.js + Tailwind + Recharts
 - **Verifiable builds** — every production deploy is signed with a [SLSA build provenance attestation](https://slsa.dev/provenance/) you can independently verify
+- **MCP server** — use GHAlyzer as a tool inside Claude Desktop, Cursor, Windsurf, etc. via the [Model Context Protocol](https://modelcontextprotocol.io)
+
+## Use from an AI IDE (MCP)
+
+GHAlyzer exposes an MCP server at `https://ghalyzer.app/api/mcp`. Ask Claude / Cursor / Windsurf things like *"which workflows in vercel/next.js have the worst failure rate this month?"* and it will call GHAlyzer directly — no login, public repos only.
+
+### Claude Desktop
+
+Add to `~/Library/Application Support/Claude/claude_desktop_config.json` (macOS) or `%APPDATA%\Claude\claude_desktop_config.json` (Windows):
+
+```json
+{
+  "mcpServers": {
+    "ghalyzer": {
+      "url": "https://ghalyzer.app/api/mcp"
+    }
+  }
+}
+```
+
+### Cursor / Windsurf
+
+Add a remote MCP server pointing at `https://ghalyzer.app/api/mcp`. No command, no args, no auth.
+
+### Tools exposed
+
+| Tool | Purpose |
+| ---- | ------- |
+| `list_public_repos` | List public non-archived repos under an owner. |
+| `scan_public_workflows` | Full analytics: avg/p95/max duration, failure rate, daily trend, insights. |
+| `get_public_insights` | Just the high-signal insights (slow/flaky/regressing workflows). |
+
+Rate-limited to 3 scans per 10 min per IP. Capped at 10 repos / 20 runs per call to stay within GitHub's unauthenticated API budget.
 
 ## Verify the live build
 
