@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { listRepos, listInstallationRepos, fetchRunsForRepo, WorkflowRunSummary } from "@/lib/github";
 import { computeAnalytics } from "@/lib/analytics";
 import { isValidOwner, isValidRepo, parseBoundedInt } from "@/lib/validate";
-import { checkRateLimit, clientKey } from "@/lib/ratelimit";
+import { checkRateLimit, checkPublicRateLimit, clientKey } from "@/lib/ratelimit";
 import { SESSION_COOKIE, openSession } from "@/lib/session";
 import { installationOctokit } from "@/lib/github-app";
 import { verifyUserInstallation } from "@/lib/installation-access";
@@ -18,10 +18,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rl = checkRateLimit(clientKey(req));
+  const sp = req.nextUrl.searchParams;
+  const isPublic = sp.get("public") === "1";
+
+  const rl = isPublic
+    ? checkPublicRateLimit(clientKey(req))
+    : checkRateLimit(clientKey(req));
   if (!rl.ok) {
     return NextResponse.json(
-      { error: "Rate limit exceeded" },
+      {
+        error: isPublic
+          ? "Too many public scans. Sign in for higher limits."
+          : "Rate limit exceeded",
+      },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
@@ -30,17 +39,20 @@ export async function GET(req: NextRequest) {
   const session = headerToken
     ? null
     : openSession(req.cookies.get(SESSION_COOKIE)?.value);
-  if (!headerToken && !session) {
+  if (!isPublic && !headerToken && !session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
-  const sp = req.nextUrl.searchParams;
   const owner = (sp.get("owner") || "").trim();
   const days = parseBoundedInt(sp.get("days"), 14, 1, 90);
-  // Hard server-side ceiling to avoid accidental 10k-repo scans that exhaust
-  // the GitHub API rate limit. Clients no longer surface this as an option.
-  const maxReposParam = parseBoundedInt(sp.get("maxRepos"), 500, 1, 500);
-  const maxRunsPerRepo = parseBoundedInt(sp.get("maxRunsPerRepo"), 100, 10, 500);
+  // Public (unauth) mode uses GitHub's 60/hr-per-IP budget, so cap hard.
+  // Authenticated mode can use the full ceiling.
+  const maxReposParam = isPublic
+    ? parseBoundedInt(sp.get("maxRepos"), 10, 1, 15)
+    : parseBoundedInt(sp.get("maxRepos"), 500, 1, 500);
+  const maxRunsPerRepo = isPublic
+    ? parseBoundedInt(sp.get("maxRunsPerRepo"), 20, 5, 30)
+    : parseBoundedInt(sp.get("maxRunsPerRepo"), 100, 10, 500);
   const repoFilter = sp.get("repos");
 
   if (!owner || !isValidOwner(owner)) {
@@ -53,7 +65,9 @@ export async function GET(req: NextRequest) {
     //      whatever permissions the token has.
     //  (b) signed-in via GitHub App -> mint an installation token for the
     //      requested owner after verifying membership.
-    const octokit = headerToken
+    const octokit = isPublic
+      ? new Octokit()
+      : headerToken
       ? new Octokit({ auth: headerToken })
       : installationOctokit(await verifyUserInstallation(session!, owner));
 
@@ -73,9 +87,10 @@ export async function GET(req: NextRequest) {
       // safety cap.
       repoNames = repoNames.slice(0, maxReposParam);
     } else {
-      const repos = headerToken
-        ? await listRepos(octokit, owner)
-        : await listInstallationRepos(octokit);
+      const repos =
+        isPublic || headerToken
+          ? await listRepos(octokit, owner)
+          : await listInstallationRepos(octokit);
       repoNames = repos
         .filter((r) => !r.archived)
         .map((r) => r.name)

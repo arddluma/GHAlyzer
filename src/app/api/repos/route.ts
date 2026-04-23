@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { listRepos, listInstallationRepos } from "@/lib/github";
 import { isValidOwner } from "@/lib/validate";
-import { checkRateLimit, clientKey } from "@/lib/ratelimit";
+import { checkRateLimit, checkPublicRateLimit, clientKey } from "@/lib/ratelimit";
 import { SESSION_COOKIE, openSession } from "@/lib/session";
 import { installationOctokit } from "@/lib/github-app";
 import { verifyUserInstallation } from "@/lib/installation-access";
@@ -15,10 +15,18 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
-  const rl = checkRateLimit(clientKey(req));
+  const isPublic = req.nextUrl.searchParams.get("public") === "1";
+
+  const rl = isPublic
+    ? checkPublicRateLimit(clientKey(req))
+    : checkRateLimit(clientKey(req));
   if (!rl.ok) {
     return NextResponse.json(
-      { error: "Rate limit exceeded" },
+      {
+        error: isPublic
+          ? "Too many public scans. Sign in for higher limits."
+          : "Rate limit exceeded",
+      },
       { status: 429, headers: { "Retry-After": String(rl.retryAfterSec) } }
     );
   }
@@ -27,7 +35,7 @@ export async function GET(req: NextRequest) {
   const session = headerToken
     ? null
     : openSession(req.cookies.get(SESSION_COOKIE)?.value);
-  if (!headerToken && !session) {
+  if (!isPublic && !headerToken && !session) {
     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
   }
 
@@ -37,12 +45,15 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const octokit = headerToken
+    const octokit = isPublic
+      ? new Octokit() // unauthenticated — only sees public repos
+      : headerToken
       ? new Octokit({ auth: headerToken })
       : installationOctokit(await verifyUserInstallation(session!, owner));
-    const repos = headerToken
-      ? await listRepos(octokit, owner)
-      : await listInstallationRepos(octokit);
+    const repos =
+      isPublic || headerToken
+        ? await listRepos(octokit, owner)
+        : await listInstallationRepos(octokit);
     return NextResponse.json({ owner, repos });
   } catch (e: any) {
     console.error("[repos] error:", e);

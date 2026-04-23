@@ -67,6 +67,8 @@ const REPO_URL = "https://github.com/arddluma/GHAlyzer";
 type Owner = { login: string; type: "user" | "org"; avatar_url: string };
 type RepoInfo = { name: string; full_name: string; archived: boolean; private: boolean };
 
+const PUBLIC_EXAMPLES = ["vercel", "facebook", "dele-to", "databuddy-analytics"];
+
 export default function Home() {
   const { user, status, signOut } = useSession();
   const [owner, setOwner] = useState("");
@@ -83,6 +85,8 @@ export default function Home() {
   const [repoListLoading, setRepoListLoading] = useState(false);
   const [repoListError, setRepoListError] = useState<string | null>(null);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
+  const [publicMode, setPublicMode] = useState(false);
+  const isPublic = publicMode || (status === "unauthenticated" && !token);
 
   async function loadOwners() {
     setOwnersLoading(true);
@@ -122,7 +126,9 @@ export default function Home() {
     setRepoListLoading(true);
     setRepoListError(null);
     try {
-      const res = await fetch(`/api/repos?owner=${encodeURIComponent(owner)}`, {
+      const qs = new URLSearchParams({ owner });
+      if (isPublic) qs.set("public", "1");
+      const res = await fetch(`/api/repos?${qs}`, {
         headers: {
           "x-requested-with": "fetch",
           ...(token ? { "x-github-token": token } : {}),
@@ -164,6 +170,7 @@ export default function Home() {
         owner,
         days: String(daysNum),
       });
+      if (isPublic) params.set("public", "1");
       if (selectedRepos.size > 0) {
         params.set("repos", Array.from(selectedRepos).join(","));
       }
@@ -244,6 +251,49 @@ export default function Home() {
           )}
         </div>
       </header>
+
+      {isPublic && (
+        <div className="mb-4 rounded-xl border border-sky-500/30 bg-sky-500/5 px-4 py-3 text-sm text-sky-100 flex flex-wrap items-center gap-2">
+          <Unlock className="w-4 h-4 text-sky-300 flex-shrink-0" />
+          <span className="font-medium">Public scan mode</span>
+          <span className="text-sky-200/80">
+            — no login, up to 10 public repos per run, 3 runs / 10&nbsp;min per IP.
+          </span>
+          <span className="text-sky-300/70">Try:</span>
+          {PUBLIC_EXAMPLES.map((o) => (
+            <button
+              key={o}
+              onClick={() => {
+                setOwner(o);
+                setSelectedRepos(new Set());
+                setRepoList(null);
+              }}
+              className="px-2 py-0.5 rounded-full border border-sky-500/40 bg-sky-500/10 hover:bg-sky-500/20 text-xs font-mono"
+            >
+              {o}
+            </button>
+          ))}
+          {status === "authenticated" && (
+            <button
+              onClick={() => setPublicMode(false)}
+              className="ml-auto text-xs text-sky-300 hover:text-sky-100 underline"
+            >
+              Exit public mode
+            </button>
+          )}
+        </div>
+      )}
+      {!isPublic && status === "authenticated" && (
+        <div className="mb-4 text-xs text-slate-400">
+          <button
+            onClick={() => setPublicMode(true)}
+            className="inline-flex items-center gap-1 underline hover:text-slate-200"
+          >
+            <Unlock className="w-3 h-3" />
+            Try public scan (no auth)
+          </button>
+        </div>
+      )}
 
       <section className="bg-slate-900 border border-slate-800 rounded-xl p-4 sm:p-5 mb-6 sm:mb-8">
         <div className="grid grid-cols-1 md:grid-cols-5 gap-3">

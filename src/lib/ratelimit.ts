@@ -7,6 +7,11 @@ const MAX_REQ_PER_WINDOW = 20;
 const GLOBAL_WINDOW_MS = 60_000;
 const GLOBAL_MAX_PER_WINDOW = 60;
 
+// Unauthenticated public-scan limiter: tighter because GitHub's unauth API
+// ceiling is 60 req/hour per IP and a single full scan eats ~15-30 of those.
+const PUBLIC_WINDOW_MS = 10 * 60_000; // 10 minutes
+const PUBLIC_MAX_PER_WINDOW = 3;
+
 type Bucket = { count: number; resetAt: number };
 const buckets = new Map<string, Bucket>();
 let globalBucket: Bucket = { count: 0, resetAt: Date.now() + GLOBAL_WINDOW_MS };
@@ -40,6 +45,25 @@ export function checkRateLimit(key: string): {
   // Global limiter
   const globalRes = hit(globalBucket, GLOBAL_MAX_PER_WINDOW, GLOBAL_WINDOW_MS, now);
   return globalRes;
+}
+
+/**
+ * Separate, tighter limiter for unauthenticated public-scan requests. Keyed
+ * under a `public:` namespace so it doesn't share buckets with the normal
+ * authenticated flow.
+ */
+export function checkPublicRateLimit(key: string): {
+  ok: boolean;
+  retryAfterSec: number;
+} {
+  const now = Date.now();
+  const nsKey = `public:${key}`;
+  let b = buckets.get(nsKey);
+  if (!b) {
+    b = { count: 0, resetAt: now + PUBLIC_WINDOW_MS };
+    buckets.set(nsKey, b);
+  }
+  return hit(b, PUBLIC_MAX_PER_WINDOW, PUBLIC_WINDOW_MS, now);
 }
 
 /**
