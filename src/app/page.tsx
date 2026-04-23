@@ -86,7 +86,23 @@ export default function Home() {
   const [repoListError, setRepoListError] = useState<string | null>(null);
   const [selectedRepos, setSelectedRepos] = useState<Set<string>>(new Set());
   const [publicMode, setPublicMode] = useState(false);
+  const [autoRan, setAutoRan] = useState(false);
+
   const isPublic = publicMode || (status === "unauthenticated" && !token);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const sp = new URLSearchParams(window.location.search);
+    const o = (sp.get("org") || sp.get("owner") || "").trim();
+    const d = sp.get("days");
+    const r = sp.get("repos");
+    const p = sp.get("public");
+    if (o) setOwner(o);
+    if (d && /^\d+$/.test(d)) setDays(d);
+    if (r) setSelectedRepos(new Set(r.split(",").map((s) => s.trim()).filter(Boolean)));
+    if (p === "1") setPublicMode(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function loadOwners() {
     setOwnersLoading(true);
@@ -183,12 +199,38 @@ export default function Home() {
       const json = await res.json();
       if (!res.ok) throw new Error(json.error || "Request failed");
       setData(json);
+      // Reflect the scan in the URL so users can copy/share the link.
+      if (typeof window !== "undefined") {
+        const share = new URLSearchParams();
+        share.set("org", owner);
+        if (daysNum !== 14) share.set("days", String(daysNum));
+        if (isPublic) share.set("public", "1");
+        if (selectedRepos.size > 0) {
+          share.set("repos", Array.from(selectedRepos).join(","));
+        }
+        const next = `${window.location.pathname}?${share}`;
+        window.history.replaceState(null, "", next);
+      }
     } catch (e: any) {
       setError(e.message);
     } finally {
       setLoading(false);
     }
   }
+
+  // Auto-run a scan if the URL arrived with ?org= and auth is settled.
+  useEffect(() => {
+    if (autoRan) return;
+    if (!owner) return;
+    if (status === "loading") return;
+    // Signed-in users with an installed org: run. Public mode: always run.
+    // Signed-in users scanning a public org via ?public=1: run.
+    if (isPublic || status === "authenticated") {
+      setAutoRan(true);
+      run();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [owner, status, isPublic, autoRan]);
 
   return (
     <main className="max-w-7xl mx-auto px-4 sm:px-6 py-6 sm:py-10">
