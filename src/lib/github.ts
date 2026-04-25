@@ -39,6 +39,22 @@ export interface WorkflowRunSummary {
   html_url: string;
 }
 
+export interface StepRunSummary {
+  name: string;
+  number: number;
+  conclusion: string | null;
+  duration_seconds: number;
+}
+
+export interface JobRunSummary {
+  id: number;
+  run_id: number;
+  name: string;
+  conclusion: string | null;
+  duration_seconds: number;
+  steps: StepRunSummary[];
+}
+
 /**
  * List all repos owned by a user or org. Tries org first, falls back to user.
  */
@@ -156,4 +172,64 @@ export async function fetchRunsForRepo(
   }
 
   return results;
+}
+
+/**
+ * Fetch jobs (with steps) for a single workflow run. Used to drill into the
+ * slowest workflow and surface per-job / per-step bottlenecks.
+ */
+export async function fetchJobsForRun(
+  octokit: Octokit,
+  owner: string,
+  repo: string,
+  run_id: number
+): Promise<JobRunSummary[]> {
+  let data: { jobs: any[] };
+  try {
+    const res = await octokit.actions.listJobsForWorkflowRun({
+      owner,
+      repo,
+      run_id,
+      per_page: 100,
+      filter: "latest",
+    });
+    data = res.data;
+  } catch (e: any) {
+    if (e?.status === 404 || e?.status === 403 || e?.status === 500) {
+      return [];
+    }
+    throw e;
+  }
+
+  return data.jobs.map((j: any) => {
+    const jobStart = j.started_at ? new Date(j.started_at).getTime() : null;
+    const jobEnd = j.completed_at ? new Date(j.completed_at).getTime() : null;
+    const jobDuration =
+      jobStart !== null && jobEnd !== null
+        ? Math.max(0, Math.round((jobEnd - jobStart) / 1000))
+        : 0;
+    const steps: StepRunSummary[] = (j.steps ?? [])
+      .map((s: any) => {
+        const start = s.started_at ? new Date(s.started_at).getTime() : null;
+        const end = s.completed_at ? new Date(s.completed_at).getTime() : null;
+        const duration =
+          start !== null && end !== null
+            ? Math.max(0, Math.round((end - start) / 1000))
+            : 0;
+        return {
+          name: s.name ?? "unknown",
+          number: s.number ?? 0,
+          conclusion: s.conclusion ?? null,
+          duration_seconds: duration,
+        };
+      });
+    return {
+      id: j.id,
+      run_id: j.run_id ?? run_id,
+      name: j.name ?? "unknown",
+      conclusion: j.conclusion ?? null,
+      duration_seconds: jobDuration,
+      steps,
+    };
+  });
 }

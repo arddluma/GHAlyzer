@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
-import { listRepos, listInstallationRepos, fetchRunsForRepo, WorkflowRunSummary } from "@/lib/github";
-import { computeAnalytics } from "@/lib/analytics";
+import { listRepos, listInstallationRepos, fetchRunsForRepo, fetchJobsForRun, WorkflowRunSummary, JobRunSummary } from "@/lib/github";
+import { computeAnalytics, computeBottleneck, formatDur } from "@/lib/analytics";
 import { isValidOwner, isValidRepo, parseBoundedInt } from "@/lib/validate";
 import { checkRateLimit, checkPublicRateLimit, clientKey } from "@/lib/ratelimit";
 import { SESSION_COOKIE, openSession } from "@/lib/session";
@@ -130,6 +130,80 @@ export async function GET(req: NextRequest) {
     await Promise.all(Array.from({ length: concurrency }, worker));
 
     const analytics = computeAnalytics(runs);
+
+    // Drill into the slowest workflow (if any) to surface job/step bottlenecks.
+    // Caps the extra API spend: at most BOTTLENECK_MAX_RUNS jobs-list calls.
+    const BOTTLENECK_MAX_RUNS = isPublic ? 5 : 10;
+    const top = analytics.workflows[0];
+    if (top && top.runs > 0) {
+      const candidates = runs
+        .filter(
+          (r) =>
+            r.repo === top.repo &&
+            r.workflow_name === top.workflow_name &&
+            r.status === "completed"
+        )
+        .sort(
+          (a, b) =>
+            new Date(b.run_started_at ?? b.created_at).getTime() -
+            new Date(a.run_started_at ?? a.created_at).getTime()
+        );
+      // Prefer successful runs (clean step timings); fall back if too few.
+      const successful = candidates.filter((r) => r.conclusion === "success");
+      const pool = successful.length >= 3 ? successful : candidates;
+      const targetRuns = pool.slice(0, BOTTLENECK_MAX_RUNS);
+
+      const jobsByRun = new Map<number, JobRunSummary[]>();
+      let bi = 0;
+      const bConcurrency = 3;
+      async function bWorker() {
+        while (bi < targetRuns.length) {
+          const idx = bi++;
+          const r = targetRuns[idx];
+          try {
+            const jobs = await fetchJobsForRun(octokit, owner, top.repo, r.id);
+            if (jobs.length) jobsByRun.set(r.id, jobs);
+          } catch (e: any) {
+            console.error(
+              `[analytics] bottleneck repo=${top.repo} run=${r.id}`,
+              e
+            );
+          }
+        }
+      }
+      await Promise.all(Array.from({ length: bConcurrency }, bWorker));
+
+      if (jobsByRun.size > 0) {
+        const bottleneck = computeBottleneck(
+          top.repo,
+          top.workflow_name,
+          jobsByRun
+        );
+        analytics.bottleneck = bottleneck;
+
+        const slowestJob = bottleneck.jobs[0];
+        const slowestStep = bottleneck.steps[0];
+        if (slowestJob && bottleneck.total_avg_seconds > 0) {
+          const pct = Math.round(
+            (slowestJob.avg_seconds / bottleneck.total_avg_seconds) * 100
+          );
+          analytics.insights.push({
+            type: "warning",
+            message: `In "${top.workflow_name}", job "${slowestJob.name}" averages ${formatDur(
+              slowestJob.avg_seconds
+            )} (~${pct}% of wall-clock).`,
+          });
+        }
+        if (slowestStep && slowestStep.avg_seconds >= 30) {
+          analytics.insights.push({
+            type: "info",
+            message: `Slowest step: "${slowestStep.step_name}" in job "${slowestStep.job_name}" averages ${formatDur(
+              slowestStep.avg_seconds
+            )}.`,
+          });
+        }
+      }
+    }
 
     // Repos we scanned that produced zero runs in the time window. Either
     // they have no workflows configured, or have workflows that didn't run.

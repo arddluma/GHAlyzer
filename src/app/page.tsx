@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { Activity, AlertTriangle, Check, CheckCircle2, ChevronDown, ChevronRight, Copy, Download, ExternalLink, Filter, Github, Info, Loader2, Lock, LogOut, Play, Plug, RefreshCw, Search, Terminal, Unlock, X } from "lucide-react";
 import {
   LineChart,
@@ -13,7 +13,7 @@ import {
   Bar,
   CartesianGrid,
 } from "recharts";
-import type { Analytics, Insight, WorkflowStats, DailyPoint } from "@/lib/analytics";
+import type { Analytics, BottleneckAnalysis, Insight, WorkflowStats, DailyPoint } from "@/lib/analytics";
 
 type SessionUser = { login: string; id: number; avatar_url: string };
 
@@ -896,6 +896,9 @@ function Dashboard({ data }: { data: ApiResponse }) {
         <SlowestChart workflows={data.slowest} />
       </div>
       <WorkflowTable workflows={data.workflows} owner={data.owner} />
+      {data.bottleneck && (
+        <Bottlenecks bottleneck={data.bottleneck} owner={data.owner} />
+      )}
       {data.errors.length > 0 && (
         <div className="bg-slate-900 border border-slate-800 rounded-xl p-5">
           <h3 className="font-semibold mb-2 text-amber-400">
@@ -1052,6 +1055,194 @@ function SlowestChart({ workflows }: { workflows: WorkflowStats[] }) {
             <Bar dataKey="avg" fill="#facc15" />
           </BarChart>
         </ResponsiveContainer>
+      </div>
+    </div>
+  );
+}
+
+function Bottlenecks({
+  bottleneck,
+  owner,
+}: {
+  bottleneck: BottleneckAnalysis;
+  owner: string;
+}) {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const total = Math.max(1, bottleneck.total_avg_seconds);
+  const topJobs = bottleneck.jobs.slice(0, 8);
+
+  function toggleJob(name: string) {
+    const next = new Set(expanded);
+    if (next.has(name)) next.delete(name);
+    else next.add(name);
+    setExpanded(next);
+  }
+  const workflowUrl = `https://github.com/${owner}/${bottleneck.repo}/actions?query=${encodeURIComponent(
+    `workflow:"${bottleneck.workflow_name}"`
+  )}`;
+
+  return (
+    <div className="bg-slate-900 border border-slate-800 rounded-xl overflow-hidden">
+      <div className="p-5 border-b border-slate-800 flex flex-wrap items-start gap-3">
+        <div className="flex-1 min-w-0">
+          <h3 className="font-semibold flex items-center gap-2">
+            <AlertTriangle className="w-4 h-4 text-amber-400" />
+            Bottlenecks in slowest pipeline
+          </h3>
+          <p className="text-xs text-slate-400 mt-1">
+            <a
+              href={workflowUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-yellow-300 hover:underline inline-flex items-center gap-1"
+            >
+              {bottleneck.workflow_name}
+              <ExternalLink className="w-3 h-3 opacity-60" />
+            </a>{" "}
+            in <span className="text-slate-300">{bottleneck.repo}</span> —
+            analyzed {bottleneck.runs_analyzed} run
+            {bottleneck.runs_analyzed === 1 ? "" : "s"}, avg wall-clock{" "}
+            <span className="text-slate-200">{fmt(bottleneck.total_avg_seconds)}</span>
+          </p>
+        </div>
+        <div className="text-[10px] uppercase tracking-wider text-slate-500">
+          {bottleneck.jobs.length} job
+          {bottleneck.jobs.length === 1 ? "" : "s"} • {bottleneck.steps.length}{" "}
+          step{bottleneck.steps.length === 1 ? "" : "s"}
+        </div>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+            <thead className="bg-slate-950 text-slate-400 text-xs uppercase">
+              <tr>
+                <th className="text-left px-4 py-2 w-6"></th>
+                <th className="text-left px-4 py-2">Job</th>
+                <th className="text-left px-4 py-2 w-1/3">Share of avg run</th>
+                <th className="text-right px-4 py-2">Runs</th>
+                <th className="text-right px-4 py-2">Avg</th>
+                <th className="text-right px-4 py-2">P95</th>
+                <th className="text-right px-4 py-2">Max</th>
+                <th className="text-right px-4 py-2">Fail %</th>
+              </tr>
+            </thead>
+            <tbody>
+              {topJobs.map((j) => {
+                const pct = Math.min(100, (j.avg_seconds / total) * 100);
+                const jobSteps = bottleneck.steps
+                  .filter((s) => s.job_name === j.name)
+                  .sort((a, b) => b.avg_seconds - a.avg_seconds);
+                const isOpen = expanded.has(j.name);
+                const jobAvg = Math.max(1, j.avg_seconds);
+                return (
+                  <Fragment key={j.name}>
+                    <tr
+                      onClick={() => toggleJob(j.name)}
+                      className="border-t border-slate-800 hover:bg-slate-800/40 cursor-pointer"
+                    >
+                      <td className="px-4 py-2 text-slate-500">
+                        <ChevronRight
+                          className={`w-4 h-4 transition-transform ${
+                            isOpen ? "rotate-90" : ""
+                          }`}
+                        />
+                      </td>
+                      <td className="px-4 py-2 font-medium truncate max-w-xs">
+                        {j.name}
+                      </td>
+                      <td className="px-4 py-2">
+                        <div className="flex items-center gap-2">
+                          <div className="flex-1 h-2 bg-slate-800 rounded overflow-hidden">
+                            <div
+                              className="h-full bg-amber-400"
+                              style={{ width: `${pct}%` }}
+                            />
+                          </div>
+                          <span className="text-xs text-slate-400 tabular-nums w-10 text-right">
+                            {pct.toFixed(0)}%
+                          </span>
+                        </div>
+                      </td>
+                      <td className="px-4 py-2 text-right">{j.runs}</td>
+                      <td className="px-4 py-2 text-right">
+                        {fmt(j.avg_seconds)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {fmt(j.p95_seconds)}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {fmt(j.max_seconds)}
+                      </td>
+                      <td
+                        className={`px-4 py-2 text-right ${
+                          j.failure_rate > 0.2
+                            ? "text-red-400"
+                            : j.failure_rate > 0
+                            ? "text-amber-400"
+                            : "text-emerald-400"
+                        }`}
+                      >
+                        {(j.failure_rate * 100).toFixed(0)}%
+                      </td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="bg-slate-950/50">
+                        <td></td>
+                        <td colSpan={7} className="px-4 py-3">
+                          {jobSteps.length === 0 ? (
+                            <div className="text-xs text-slate-500">
+                              No step timings recorded.
+                            </div>
+                          ) : (
+                            <div className="space-y-1.5">
+                              <div className="text-[10px] uppercase tracking-wider text-slate-500 mb-1.5">
+                                Steps inside {j.name}
+                              </div>
+                              {jobSteps.map((s) => {
+                                const stepPct = Math.min(
+                                  100,
+                                  (s.avg_seconds / jobAvg) * 100
+                                );
+                                return (
+                                  <div
+                                    key={s.step_name}
+                                    className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-3 text-xs"
+                                  >
+                                    <div className="truncate text-slate-200">
+                                      {s.step_name}
+                                    </div>
+                                    <div className="w-40 sm:w-56 h-1.5 bg-slate-800 rounded overflow-hidden">
+                                      <div
+                                        className="h-full bg-sky-400"
+                                        style={{ width: `${stepPct}%` }}
+                                      />
+                                    </div>
+                                    <div className="tabular-nums text-slate-300 w-14 text-right">
+                                      {fmt(s.avg_seconds)}
+                                    </div>
+                                    <div
+                                      className={`tabular-nums w-10 text-right ${
+                                        s.failure_rate > 0.2
+                                          ? "text-red-400"
+                                          : s.failure_rate > 0
+                                          ? "text-amber-400"
+                                          : "text-slate-500"
+                                      }`}
+                                    >
+                                      {(s.failure_rate * 100).toFixed(0)}%
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
+          </tbody>
+        </table>
       </div>
     </div>
   );
