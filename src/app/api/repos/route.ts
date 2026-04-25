@@ -50,10 +50,11 @@ export async function GET(req: NextRequest) {
       : headerToken
       ? new Octokit({ auth: headerToken })
       : installationOctokit(await verifyUserInstallation(session!, owner));
-    const repos =
+    const all =
       isPublic || headerToken
         ? await listRepos(octokit, owner)
         : await listInstallationRepos(octokit);
+    const repos = all.filter((r) => !r.archived);
     return NextResponse.json({ owner, repos });
   } catch (e: any) {
     console.error("[repos] error:", e);
